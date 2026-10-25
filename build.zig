@@ -3,13 +3,44 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
+    const sdl = b.dependency("sdl", .{
+        .optimize = optimize,
+        .target = target,
+    });
+
+    const sdl_image = b.dependency("SDL_image", .{
+        .optimize = optimize,
+        .target = target,
+    });
+
+    const translate_c = b.addTranslateC(.{
+        .root_source_file = b.addWriteFiles().add("stub.h",
+            \\#include <SDL3/SDL.h>
+            \\#include <SDL3_image/SDL_image.h>
+        ),
+        .optimize = optimize,
+        .target = target,
+    });
+
+    const sdl_lib = sdl.artifact("SDL3");
+    const sdl_image_lib = sdl_image.artifact("SDL3_image");
+    translate_c.addIncludePath(sdl_lib.getEmittedIncludeTree());
+    translate_c.addIncludePath(sdl_image_lib.getEmittedIncludeTree());
+
+    const main_module = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .optimize = optimize,
+        .target = target,
+    });
+
+    main_module.linkLibrary(sdl_lib);
+    main_module.linkLibrary(sdl_image_lib);
+    main_module.addImport("sdl", translate_c.createModule());
+
     const exe = b.addExecutable(.{
         .name = "zview",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
+        .root_module = main_module,
     });
 
     b.installArtifact(exe);

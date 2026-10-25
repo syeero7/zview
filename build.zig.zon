@@ -1,6 +1,16 @@
 .{
     .name = .zview,
     .version = "0.1.0",
+    .dependencies = .{
+        .sdl = .{
+            .url = "git+https://github.com/allyourcodebase/SDL#5b3f01d82ff612dfa65356d87ccf29128c46bdc7",
+            .hash = "sdl-1.0.8+3.4.18-i4QD0RcKqgAbRSY4Qa17lJpp7TcF9dtg1X08bExP2QjP",
+        },
+        .SDL_image = .{
+            .url = "git+https://github.com/allyourcodebase/SDL_image#60e6ebfe20d9d5c6900feff72f8babe03ef8503d",
+            .hash = "SDL_image-3.4.8--aJoHUseAAAsov0rbCRZh_F7QUDFsDb09FoYGnc30dkE",
+        },
+    },
     .fingerprint = 0xaaf97be14b32ec31, // Changing this has security and trust implications.
     .minimum_zig_version = "0.16.0",
     .paths = .{

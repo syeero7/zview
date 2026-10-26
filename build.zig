@@ -4,12 +4,8 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const sdl = b.dependency("sdl", .{
-        .optimize = optimize,
-        .target = target,
-    });
-
-    const sdl_image = b.dependency("SDL_image", .{
+    const main_module = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
         .optimize = optimize,
         .target = target,
     });
@@ -23,20 +19,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
 
-    const sdl_lib = sdl.artifact("SDL3");
-    const sdl_image_lib = sdl_image.artifact("SDL3_image");
-    translate_c.addIncludePath(sdl_lib.getEmittedIncludeTree());
-    translate_c.addIncludePath(sdl_image_lib.getEmittedIncludeTree());
-
-    const main_module = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
-        .optimize = optimize,
-        .target = target,
-    });
-
-    main_module.linkLibrary(sdl_lib);
-    main_module.linkLibrary(sdl_image_lib);
     main_module.addImport("sdl", translate_c.createModule());
+    main_module.linkSystemLibrary("SDL3", .{});
+    main_module.linkSystemLibrary("SDL3_image", .{});
 
     const exe = b.addExecutable(.{
         .name = "zview",

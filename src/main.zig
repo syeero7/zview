@@ -1,5 +1,5 @@
 const std = @import("std");
-const sdl = @import("sdl");
+const c = @import("c");
 const Io = std.Io;
 
 const Error = error{SdlFailure};
@@ -15,52 +15,52 @@ pub fn main(init: std.process.Init) !void {
         break :fp iterator.next() orelse return;
     };
 
-    if (!sdl.SDL_Init(sdl.SDL_INIT_VIDEO)) {
-        std.log.err("Failed to initialize SDL: {s}", .{sdl.SDL_GetError()});
+    if (!c.SDL_Init(c.SDL_INIT_VIDEO)) {
+        std.log.err("Failed to initialize SDL: {s}", .{c.SDL_GetError()});
         return Error.SdlFailure;
     }
-    defer sdl.SDL_Quit();
+    defer c.SDL_Quit();
 
-    const display_id = sdl.SDL_GetPrimaryDisplay();
-    const mode = sdl.SDL_GetDesktopDisplayMode(display_id);
+    const display_id = c.SDL_GetPrimaryDisplay();
+    const mode = c.SDL_GetDesktopDisplayMode(display_id);
     if (mode == null) {
-        std.log.err("Failed to get display mode: {s}", .{sdl.SDL_GetError()});
+        std.log.err("Failed to get display mode: {s}", .{c.SDL_GetError()});
         return Error.SdlFailure;
     }
 
-    const window = sdl.SDL_CreateWindow("zview", mode.*.w, mode.*.h, sdl.SDL_WINDOW_FULLSCREEN);
+    const window = c.SDL_CreateWindow("zview", mode.*.w, mode.*.h, c.SDL_WINDOW_FULLSCREEN);
     if (window == null) {
-        std.log.err("Failed to create window: {s}", .{sdl.SDL_GetError()});
+        std.log.err("Failed to create window: {s}", .{c.SDL_GetError()});
         return Error.SdlFailure;
     }
-    defer sdl.SDL_DestroyWindow(window);
+    defer c.SDL_DestroyWindow(window);
 
-    const renderer = sdl.SDL_CreateRenderer(window, null);
+    const renderer = c.SDL_CreateRenderer(window, null);
     if (renderer == null) {
-        std.log.err("Failed to create render: {s}", .{sdl.SDL_GetError()});
+        std.log.err("Failed to create render: {s}", .{c.SDL_GetError()});
         return Error.SdlFailure;
     }
-    defer sdl.SDL_DestroyRenderer(renderer);
+    defer c.SDL_DestroyRenderer(renderer);
 
-    const texture = sdl.IMG_LoadTexture(renderer, filepath);
+    const texture = c.IMG_LoadTexture(renderer, filepath);
     if (texture == null) {
-        std.log.err("Failed to create texture: {s}", .{sdl.SDL_GetError()});
+        std.log.err("Failed to create texture: {s}", .{c.SDL_GetError()});
         return Error.SdlFailure;
     }
-    defer sdl.SDL_DestroyTexture(texture);
+    defer c.SDL_DestroyTexture(texture);
 
-    _ = sdl.SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-    _ = sdl.SDL_RenderClear(renderer);
+    _ = c.SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    _ = c.SDL_RenderClear(renderer);
 
     var img_width: f32 = undefined;
     var img_height: f32 = undefined;
-    if (!sdl.SDL_GetTextureSize(texture, &img_width, &img_height)) {
-        std.log.err("Failed to get texture size {s}", .{sdl.SDL_GetError()});
+    if (!c.SDL_GetTextureSize(texture, &img_width, &img_height)) {
+        std.log.err("Failed to get texture size {s}", .{c.SDL_GetError()});
         return Error.SdlFailure;
     }
 
-    _ = sdl.SDL_SetRenderLogicalPresentation(renderer, @intFromFloat(img_width), @intFromFloat(img_height), sdl.SDL_LOGICAL_PRESENTATION_LETTERBOX);
-    _ = sdl.SDL_RenderTexture(renderer, texture, null, null);
-    _ = sdl.SDL_RenderPresent(renderer);
-    sdl.SDL_Delay(2000);
+    _ = c.SDL_SetRenderLogicalPresentation(renderer, @intFromFloat(img_width), @intFromFloat(img_height), c.SDL_LOGICAL_PRESENTATION_LETTERBOX);
+    _ = c.SDL_RenderTexture(renderer, texture, null, null);
+    _ = c.SDL_RenderPresent(renderer);
+    c.SDL_Delay(2000);
 }

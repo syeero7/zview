@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const translate_c = b.addTranslateC(.{
-        .root_source_file = b.addWriteFiles().add("stub.h",
+        .root_source_file = b.addWriteFiles().add("c.h",
             \\#include <SDL3/SDL.h>
             \\#include <SDL3_image/SDL_image.h>
         ),
@@ -19,7 +19,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
 
-    main_module.addImport("sdl", translate_c.createModule());
+    main_module.addImport("c", translate_c.createModule());
     main_module.linkSystemLibrary("SDL3", .{});
     main_module.linkSystemLibrary("SDL3_image", .{});
 

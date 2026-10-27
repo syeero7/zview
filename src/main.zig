@@ -21,7 +21,14 @@ pub fn main(init: std.process.Init) !void {
     }
     defer sdl.SDL_Quit();
 
-    const window = sdl.SDL_CreateWindow("zview", 800, 600, sdl.SDL_WINDOW_FULLSCREEN);
+    const display_id = sdl.SDL_GetPrimaryDisplay();
+    const mode = sdl.SDL_GetDesktopDisplayMode(display_id);
+    if (mode == null) {
+        std.log.err("Failed to get display mode: {s}", .{sdl.SDL_GetError()});
+        return Error.SdlFailure;
+    }
+
+    const window = sdl.SDL_CreateWindow("zview", mode.*.w, mode.*.h, sdl.SDL_WINDOW_FULLSCREEN);
     if (window == null) {
         std.log.err("Failed to create window: {s}", .{sdl.SDL_GetError()});
         return Error.SdlFailure;
@@ -42,7 +49,17 @@ pub fn main(init: std.process.Init) !void {
     }
     defer sdl.SDL_DestroyTexture(texture);
 
+    _ = sdl.SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
     _ = sdl.SDL_RenderClear(renderer);
+
+    var img_width: f32 = undefined;
+    var img_height: f32 = undefined;
+    if (!sdl.SDL_GetTextureSize(texture, &img_width, &img_height)) {
+        std.log.err("Failed to get texture size {s}", .{sdl.SDL_GetError()});
+        return Error.SdlFailure;
+    }
+
+    _ = sdl.SDL_SetRenderLogicalPresentation(renderer, @intFromFloat(img_width), @intFromFloat(img_height), sdl.SDL_LOGICAL_PRESENTATION_LETTERBOX);
     _ = sdl.SDL_RenderTexture(renderer, texture, null, null);
     _ = sdl.SDL_RenderPresent(renderer);
     sdl.SDL_Delay(2000);

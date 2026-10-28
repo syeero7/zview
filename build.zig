@@ -14,10 +14,12 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .ext_image = true,
-        .c_sdl_preferred_linkage = .dynamic,
     });
 
+    _ = b.systemIntegrationOption("sdl", .{ .default = true });
     main_module.addImport("sdl3", sdl3.module("sdl3"));
+    main_module.linkSystemLibrary("SDL3_image", .{});
+
     const exe = b.addExecutable(.{
         .name = "zview",
         .root_module = main_module,

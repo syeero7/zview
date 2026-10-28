@@ -3,9 +3,10 @@ const sdl3 = @import("sdl3");
 
 const Display = sdl3.video.Display;
 const Renderer = sdl3.render.Renderer;
+const FpsLimiter = sdl3.extras.FramerateCapper(f32);
 
 const AppState = struct {
-    frame_limiter: sdl3.extras.FramerateCapper(f32),
+    fps_limiter: FpsLimiter,
     window: sdl3.video.Window,
     renderer: sdl3.render.Renderer,
     texture: sdl3.render.Texture,
@@ -46,9 +47,9 @@ pub fn init(init_data: sdl3.Init) !struct { AppState, sdl3.AppResult } {
     errdefer renderer.deinit();
     errdefer window.deinit();
 
-    var frame_limiter = sdl3.extras.FramerateCapper(f32){ .mode = .{ .unlimited = {} } };
+    var fps_limiter = FpsLimiter{ .mode = .unlimited };
     renderer.setVSync(.{ .on_each_num_refresh = 1 }) catch {
-        frame_limiter.mode = .{ .limited = fps };
+        fps_limiter.mode = .{ .limited = fps };
     };
 
     const texture = try sdl3.image.loadTexture(renderer, filepath);
@@ -57,7 +58,7 @@ pub fn init(init_data: sdl3.Init) !struct { AppState, sdl3.AppResult } {
     try logger.logInfo("Finished initializing", .{});
     return .{
         .{
-            .frame_limiter = frame_limiter,
+            .fps_limiter = fps_limiter,
             .window = window,
             .renderer = renderer,
             .texture = texture,
@@ -67,7 +68,7 @@ pub fn init(init_data: sdl3.Init) !struct { AppState, sdl3.AppResult } {
 }
 
 pub fn iterate(state: *AppState) !sdl3.AppResult {
-    _ = state.frame_limiter.delay();
+    _ = state.fps_limiter.delay();
 
     try state.renderer.setDrawColor(.{ .r = 255, .g = 255, .b = 255, .a = 255 });
     try state.renderer.clear();

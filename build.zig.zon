@@ -1,7 +1,12 @@
 .{
     .name = .zview,
     .version = "0.1.0",
-    .dependencies = .{},
+    .dependencies = .{
+        .sdl3 = .{
+            .url = "git+https://codeberg.org/7Games/zig-sdl3?ref=v0.2.3#666331118c8f7d8a03ea633d79a343c34dc32b84",
+            .hash = "sdl3-0.2.3-NmT1Q1QDKgACd5t_PNSG08lcOCX25qaRYZjUmXPTVBY_",
+        },
+    },
     .fingerprint = 0xaaf97be14b32ec31, // Changing this has security and trust implications.
     .minimum_zig_version = "0.17.0",
     .paths = .{

@@ -69,13 +69,22 @@ pub fn init(init_data: sdl3.Init) !struct { AppState, sdl3.AppResult } {
 
 pub fn iterate(state: *AppState) !sdl3.AppResult {
     _ = state.fps_limiter.delay();
-
-    try state.renderer.setDrawColor(.{ .r = 255, .g = 255, .b = 255, .a = 255 });
+    try state.renderer.setDrawColor(.{ .r = 0, .g = 0, .b = 0, .a = 255 });
     try state.renderer.clear();
 
-    const img_width, const img_height = try state.texture.getSize();
-    try state.renderer.setLogicalPresentation(@intFromFloat(img_width), @intFromFloat(img_height), .letter_box);
-    try state.renderer.renderTexture(state.texture, null, null);
+    const texture_width, const texture_height = try state.texture.getSize();
+    const window_size = try state.window.getSize();
+    const window_width: f32 = @floatFromInt(window_size.@"0");
+    const window_height: f32 = @floatFromInt(window_size.@"1");
+
+    const scale = @min(window_width / texture_width, window_height / texture_height);
+    var dest_rect: sdl3.rect.FRect = undefined;
+    dest_rect.w = texture_width * scale;
+    dest_rect.h = texture_height * scale;
+    dest_rect.x = (window_width - dest_rect.w) * 0.5;
+    dest_rect.y = (window_height - dest_rect.h) * 0.5;
+
+    try state.renderer.renderTexture(state.texture, null, dest_rect);
     try state.renderer.present();
     return .run;
 }
@@ -84,6 +93,10 @@ pub fn event(state: *AppState, current_event: sdl3.events.Event) !sdl3.AppResult
     _ = state;
     switch (current_event) {
         .terminating, .quit => return .success,
+        .key_down => |keyboard| if (keyboard.key) |key| switch (key) {
+            .q => return .success,
+            else => {},
+        },
         else => {},
     }
     return .run;

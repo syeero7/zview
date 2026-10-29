@@ -8,8 +8,10 @@ const FpsLimiter = sdl3.extras.FramerateCapper(f32);
 const AppState = struct {
     fps_limiter: FpsLimiter,
     window: sdl3.video.Window,
-    renderer: sdl3.render.Renderer,
+    renderer: Renderer,
     texture: sdl3.render.Texture,
+    rotate_angle: f32 = 0,
+    zoom_level: f32 = 1,
 };
 
 // Use main callbacks.
@@ -47,6 +49,7 @@ pub fn init(init_data: sdl3.Init) !struct { AppState, sdl3.AppResult } {
     errdefer renderer.deinit();
     errdefer window.deinit();
 
+    try renderer.setLogicalPresentation(mode.width, mode.height, .letter_box);
     var fps_limiter = FpsLimiter{ .mode = .unlimited };
     renderer.setVSync(.{ .on_each_num_refresh = 1 }) catch {
         fps_limiter.mode = .{ .limited = fps };
@@ -77,25 +80,31 @@ pub fn iterate(state: *AppState) !sdl3.AppResult {
     const window_width: f32 = @floatFromInt(window_size.@"0");
     const window_height: f32 = @floatFromInt(window_size.@"1");
 
-    const scale = @min(window_width / texture_width, window_height / texture_height);
+    const scale = @min(window_width / texture_width, window_height / texture_height) * state.zoom_level;
     var dest_rect: sdl3.rect.FRect = undefined;
     dest_rect.w = texture_width * scale;
     dest_rect.h = texture_height * scale;
-    dest_rect.x = (window_width - dest_rect.w) * 0.5;
-    dest_rect.y = (window_height - dest_rect.h) * 0.5;
+    dest_rect.x = (window_width - dest_rect.w) / 2;
+    dest_rect.y = (window_height - dest_rect.h) / 2;
 
-    try state.renderer.renderTexture(state.texture, null, dest_rect);
+    try state.renderer.renderTextureRotated(state.texture, null, dest_rect, state.rotate_angle, null, .{});
     try state.renderer.present();
     return .run;
 }
 
 pub fn event(state: *AppState, current_event: sdl3.events.Event) !sdl3.AppResult {
-    _ = state;
     switch (current_event) {
         .terminating, .quit => return .success,
-        .key_down => |keyboard| if (keyboard.key) |key| switch (key) {
-            .q => return .success,
-            else => {},
+        .key_down => |keyboard| {
+            if (keyboard.key == null) return .run;
+            switch (keyboard.key.?) {
+                .q => return .success,
+                .l => state.rotate_angle = rotate(state.rotate_angle, .clockwise),
+                .h => state.rotate_angle = rotate(state.rotate_angle, .counter_clockwise),
+                .z => state.zoom_level = @min(2, state.zoom_level + 0.25),
+                .x => state.zoom_level = @max(0.25, state.zoom_level - 0.25),
+                else => {},
+            }
         },
         else => {},
     }
@@ -112,4 +121,11 @@ pub fn quit(app_state: ?*AppState, result: sdl3.AppResult) void {
 
     sdl3.quit(init_flags);
     sdl3.shutdown();
+}
+
+fn rotate(angle: f32, direction: enum { clockwise, counter_clockwise }) f32 {
+    return switch (direction) {
+        .clockwise => if (angle == 270) 0 else @min(270, angle + 90),
+        .counter_clockwise => if (angle == 0) 90 else @max(0, angle - 90),
+    };
 }

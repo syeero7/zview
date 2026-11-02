@@ -1,6 +1,7 @@
 const std = @import("std");
 const sdl3 = @import("sdl3");
 const Transform = @import("Transform.zig");
+const Images = @import("Images.zig");
 
 const Io = std.Io;
 
@@ -14,9 +15,8 @@ const AppState = struct {
     fps_limiter: FpsLimiter,
     window: sdl3.video.Window,
     renderer: Renderer,
-    textures: []Texture,
-    view_index: usize = 0,
     transform: Transform = .{},
+    images: Images,
 };
 
 // Use main callbacks.
@@ -64,72 +64,15 @@ pub fn init(init_data: sdl3.Init) !struct { AppState, sdl3.AppResult } {
     var texture_list = std.ArrayList(Texture).empty;
     errdefer texture_list.deinit(gpa);
 
-    const cwd = Io.Dir.cwd();
-    const stat = try cwd.statFile(io, path, .{});
-    sw: switch (stat.kind) {
-        .file => {
-            const file_ext = std.fs.path.extension(path);
-            if (isImage(file_ext)) {
-                try texture_list.append(gpa, try sdl3.image.loadTexture(renderer, path));
-                break :sw;
-            }
-
-            if (!isZip(file_ext)) return error.UnkownFileType;
-            // TODO: lazy load images
-            // TODO: sort by filename
-            const file = try Io.Dir.cwd().openFile(io, path, .{});
-            defer file.close(io);
-            var buffer: [1024 * 4]u8 = undefined;
-            var file_reader = file.reader(io, &buffer);
-
-            var alloc_writer = Io.Writer.Allocating.init(gpa);
-            defer alloc_writer.deinit();
-            var iterator = try std.zip.Iterator.init(&file_reader);
-            while (try iterator.next()) |entry| {
-                if (entry.uncompressed_size == 0) continue;
-                const name_buf = try gpa.alloc(u8, entry.filename_len);
-                defer gpa.free(name_buf);
-
-                const file_name = try entry.getFilename(&file_reader, name_buf, .{});
-                if (!isImage(std.fs.path.extension(file_name))) continue;
-
-                defer alloc_writer.clearRetainingCapacity();
-                try alloc_writer.ensureTotalCapacity(entry.uncompressed_size);
-                try entry.extractTo(&file_reader, &alloc_writer.writer);
-                const stream = try sdl3.io_stream.Stream.initFromConstMem(alloc_writer.written());
-                try texture_list.append(gpa, try sdl3.image.loadTextureIo(renderer, stream, true));
-            }
-        },
-        .directory => {
-            // TODO: load textures asynchronously
-            const dir = try cwd.openDir(io, path, .{ .iterate = true });
-            defer dir.close(io);
-
-            var dir_walker = try dir.walk(gpa);
-            defer dir_walker.deinit();
-            while (try dir_walker.next(io)) |entry| {
-                if (entry.kind == .directory) continue;
-                const file_ext = std.fs.path.extension(entry.basename);
-                if (!isImage(file_ext)) continue;
-
-                const entry_path = try std.fs.path.joinZ(gpa, &.{ path, entry.basename });
-                defer gpa.free(entry_path);
-                try texture_list.append(gpa, try sdl3.image.loadTexture(renderer, entry_path));
-            }
-        },
-        else => return error.UnkownFileType,
-    }
-
-    const textures = try texture_list.toOwnedSlice(gpa);
-    if (textures.len == 0) return error.NoTextures;
+    const images = try Images.init(io, gpa, renderer, path);
     try logger.logInfo("Finished initializing", .{});
     return .{
         .{
             .fps_limiter = fps_limiter,
             .window = window,
             .renderer = renderer,
-            .textures = textures,
             .allocator = gpa,
+            .images = images,
         },
         .run,
     };
@@ -140,7 +83,7 @@ pub fn iterate(state: *AppState) !sdl3.AppResult {
     try state.renderer.setDrawColor(.{ .r = 0, .g = 0, .b = 0, .a = 255 });
     try state.renderer.clear();
 
-    const texture = state.textures[state.view_index];
+    const texture = state.images.getCurrentTexture();
     const texture_width, const texture_height = try texture.getSize();
     const window_size = try state.window.getSize();
     const window_width: f32 = @floatFromInt(window_size.@"0");
@@ -170,8 +113,8 @@ pub fn event(state: *AppState, current_event: sdl3.events.Event) !sdl3.AppResult
                 .h => state.transform.rotate(.counter_clockwise),
                 .z => state.transform.scaleUp(),
                 .x => state.transform.scaleDown(),
-                .right => state.view_index = @min(state.textures.len - 1, state.view_index + 1),
-                .left => state.view_index = if (state.view_index == 0) 0 else state.view_index - 1,
+                .right => state.images.next(),
+                .left => state.images.previous(),
                 else => {},
             }
         },
@@ -183,32 +126,11 @@ pub fn event(state: *AppState, current_event: sdl3.events.Event) !sdl3.AppResult
 pub fn quit(app_state: ?*AppState, result: sdl3.AppResult) void {
     _ = result;
     if (app_state) |state| {
-        for (state.textures) |texture| {
-            texture.deinit();
-        }
-        state.allocator.free(state.textures);
+        state.images.deinit(state.allocator);
         state.renderer.deinit();
         state.window.deinit();
     }
 
     sdl3.quit(init_flags);
     sdl3.shutdown();
-}
-
-fn isImage(file_ext: []const u8) bool {
-    if (file_ext.len < 4) return false;
-    inline for ([_][]const u8{ "jpg", "jpeg", "png", "gif", "webp", "avif" }) |img_ext| {
-        if (std.mem.eql(u8, file_ext[1..], img_ext)) return true;
-    }
-
-    return false;
-}
-
-fn isZip(file_ext: []const u8) bool {
-    if (file_ext.len < 4) return false;
-    inline for ([_][]const u8{ "zip", "cbz" }) |ext| {
-        if (std.mem.eql(u8, file_ext[1..], ext)) return true;
-    }
-
-    return false;
 }

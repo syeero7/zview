@@ -1,5 +1,6 @@
 const std = @import("std");
 const sdl3 = @import("sdl3");
+const Transform = @import("Transform.zig");
 
 const Io = std.Io;
 
@@ -15,8 +16,7 @@ const AppState = struct {
     renderer: Renderer,
     textures: []Texture,
     view_index: usize = 0,
-    rotate_angle: f32 = 0,
-    zoom_level: f32 = 1,
+    transform: Transform = .{},
 };
 
 // Use main callbacks.
@@ -146,14 +146,15 @@ pub fn iterate(state: *AppState) !sdl3.AppResult {
     const window_width: f32 = @floatFromInt(window_size.@"0");
     const window_height: f32 = @floatFromInt(window_size.@"1");
 
-    const scale = @min(window_width / texture_width, window_height / texture_height) * state.zoom_level;
+    const transform = state.transform;
+    const scale = @min(window_width / texture_width, window_height / texture_height) * transform.scale_factor;
     var dest_rect: sdl3.rect.FRect = undefined;
     dest_rect.w = texture_width * scale;
     dest_rect.h = texture_height * scale;
     dest_rect.x = (window_width - dest_rect.w) / 2;
     dest_rect.y = (window_height - dest_rect.h) / 2;
 
-    try state.renderer.renderTextureRotated(texture, null, dest_rect, state.rotate_angle, null, .{});
+    try state.renderer.renderTextureRotated(texture, null, dest_rect, transform.rotate_angle, null, .{});
     try state.renderer.present();
     return .run;
 }
@@ -165,10 +166,10 @@ pub fn event(state: *AppState, current_event: sdl3.events.Event) !sdl3.AppResult
             if (keyboard.key == null) return .run;
             switch (keyboard.key.?) {
                 .q => return .success,
-                .l => state.rotate_angle = rotate(state.rotate_angle, .clockwise),
-                .h => state.rotate_angle = rotate(state.rotate_angle, .counter_clockwise),
-                .z => state.zoom_level = @min(2, state.zoom_level + 0.05),
-                .x => state.zoom_level = @max(0.1, state.zoom_level - 0.05),
+                .l => state.transform.rotate(.clockwise),
+                .h => state.transform.rotate(.counter_clockwise),
+                .z => state.transform.scaleUp(),
+                .x => state.transform.scaleDown(),
                 .right => state.view_index = @min(state.textures.len - 1, state.view_index + 1),
                 .left => state.view_index = if (state.view_index == 0) 0 else state.view_index - 1,
                 else => {},
@@ -192,13 +193,6 @@ pub fn quit(app_state: ?*AppState, result: sdl3.AppResult) void {
 
     sdl3.quit(init_flags);
     sdl3.shutdown();
-}
-
-fn rotate(angle: f32, direction: enum { clockwise, counter_clockwise }) f32 {
-    return switch (direction) {
-        .clockwise => if (angle == 270) 0 else @min(270, angle + 90),
-        .counter_clockwise => if (angle == 0) 90 else @max(0, angle - 90),
-    };
 }
 
 fn isImage(file_ext: []const u8) bool {

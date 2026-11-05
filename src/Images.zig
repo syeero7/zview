@@ -95,13 +95,11 @@ pub fn init(io: Io, allocator: Allocator, path: [:0]const u8) !@This() {
                 try paths.append(allocator, try allocator.dupeSentinel(u8, entry.path, 0));
             }
 
-            const items = try paths.toOwnedSlice(allocator);
-            std.debug.print("{s}\n", .{items[0]});
             // std.mem.sort([]const u8,paths.items,{},);
             break :sw .{
                 .directory = .{
                     .dir_path = path,
-                    .sub_paths = items,
+                    .sub_paths = try paths.toOwnedSlice(allocator),
                 },
             };
         },
@@ -117,7 +115,10 @@ pub fn init(io: Io, allocator: Allocator, path: [:0]const u8) !@This() {
 
 pub fn deinit(self: *@This(), allocator: Allocator) void {
     switch (self.source) {
-        .directory => |dir_src| allocator.free(dir_src.sub_paths),
+        .directory => |dir_src| {
+            for (dir_src.sub_paths) |sub_path| allocator.free(sub_path);
+            allocator.free(dir_src.sub_paths);
+        },
         .zip => |zip_src| allocator.free(zip_src.filenames),
         else => {},
     }
@@ -137,12 +138,12 @@ pub fn next(self: *@This(), io: Io) !void {
         .zip => |zip_src| zip_src.filenames.len,
         .image => return,
     };
-
     try self.mutex.lock(io);
     defer self.mutex.unlock(io);
 
-    self.cursor = @min(items_length - 1, self.cursor + 1);
     if (self.cursor == items_length - 1) return;
+    self.cursor += 1;
+
     if (self.items.previous) |prev_item| {
         if (prev_item.surface) |surface| surface.deinit();
         if (prev_item.texture) |texture| texture.deinit();
@@ -159,8 +160,9 @@ pub fn previous(self: *@This(), io: Io) !void {
     try self.mutex.lock(io);
     defer self.mutex.unlock(io);
 
-    self.cursor = if (self.cursor == 0) 0 else self.cursor - 1;
     if (self.cursor == 0) return;
+    self.cursor -= 1;
+
     if (self.items.next) |next_item| {
         if (next_item.surface) |surface| surface.deinit();
         if (next_item.texture) |texture| texture.deinit();
@@ -172,15 +174,17 @@ pub fn previous(self: *@This(), io: Io) !void {
     self.condition.signal(io);
 }
 
-pub fn getCurrentTexture(self: *@This(), io: Io, renderer: Renderer) !Texture {
+pub fn getCurrentTexture(self: *@This(), io: Io, renderer: Renderer) !?Texture {
     try self.mutex.lock(io);
     defer self.mutex.unlock(io);
-    var current = self.items.current.?;
+
+    const current = self.items.current orelse return null;
     if (current.texture) |texture| return texture;
     if (current.surface) |surface| {
-        current.texture = try renderer.createTextureFromSurface(surface);
+        const texture = try renderer.createTextureFromSurface(surface);
         surface.deinit();
-        return current.texture.?;
+        self.items.current = .{ .texture = texture, .surface = null };
+        return texture;
     }
 
     unreachable;
@@ -206,34 +210,29 @@ fn isZip(filename: []const u8) bool {
     return false;
 }
 
-pub fn loadAdjacentImages(io_ptr: *const Io, allocator_ptr: *const Allocator, images: *Images) !void {
-    const io = io_ptr.*;
-    const allocator = allocator_ptr.*;
-
-    try images.mutex.lock(io);
+pub fn loadAdjacentImages(io: Io, allocator: Allocator, images: *Images) !void {
     const src_length = switch (images.source) {
         .directory => |dir| dir.sub_paths.len,
         .zip => |zip| zip.filenames.len,
         else => 1,
     };
-    images.mutex.unlock(io);
 
     while (true) {
         try images.mutex.lock(io);
         defer images.mutex.unlock(io);
         if (!images.active) break;
 
-        while (!images.ready) {
-            try images.condition.wait(io, &images.mutex);
-        }
+        while (!images.ready) try images.condition.wait(io, &images.mutex);
         defer images.ready = false;
+        std.debug.print("current: {d}\n", .{images.cursor});
 
-        const prev_index = images.cursor - 1;
+        const prev_index = if (images.cursor > 0) images.cursor - 1 else 0;
         const next_index = images.cursor + 1;
 
         const should_load_next = next_index < src_length and (images.items.next == null or
             (images.items.next.?.texture == null and images.items.next.?.surface == null));
 
+        // FIXME: cannot navigate to index 0 if its not cached
         const should_load_prev = prev_index > 0 and (images.items.previous == null or
             (images.items.previous.?.texture == null and images.items.previous.?.surface == null));
 
@@ -254,6 +253,7 @@ pub fn loadAdjacentImages(io_ptr: *const Io, allocator_ptr: *const Allocator, im
             },
             .zip => |zip_src| {
                 _ = zip_src;
+                // TODO:
             },
             else => {},
         }

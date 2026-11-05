@@ -2,62 +2,36 @@ const std = @import("std");
 const sdl3 = @import("sdl3");
 const Transform = @import("Transform.zig");
 const Images = @import("Images.zig");
-const image_loader = @import("image_loader.zig");
 
 const Io = std.Io;
-
+const Allocator = std.mem.Allocator;
 const Display = sdl3.video.Display;
 const Renderer = sdl3.render.Renderer;
 const Texture = sdl3.render.Texture;
-const Sdl3Thread = sdl3.thread.Thread;
 const FpsLimiter = sdl3.extras.FramerateCapper(f32);
-
-const AppState = struct {
-    io: Io,
-    allocator: std.mem.Allocator,
-    fps_limiter: FpsLimiter,
-    window: sdl3.video.Window,
-    renderer: Renderer,
-    transform: Transform = .{},
-    images: Images,
-    thread: ?std.Thread = null,
-};
-
-// Use main callbacks.
-comptime {
-    _ = sdl3.main_callbacks;
-}
-
-// Disable main hack.
-pub const _start = void;
-pub const WinMainCRTStartup = void;
 
 const fps = 60;
 const init_flags = sdl3.InitFlags{ .video = true };
 
 const logger = sdl3.log.Category.application;
 
-pub fn init(init_data: sdl3.Init) !struct { AppState, sdl3.AppResult } {
-    const gpa = init_data.gpa;
-    const io = init_data.io;
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
-    const path: [:0]u8 = fp: {
-        if (init_data.args.len < 2) return error.ImgPathRequired;
-        break :fp std.mem.span(init_data.args[1]);
-    };
+    _ = try sdl3.setMemoryFunctionsByAllocator(allocator);
+    defer sdl3.shutdown();
+    try sdl3.init(init_flags);
+    defer sdl3.quit(init_flags);
 
-    _ = try sdl3.setMemoryFunctionsByAllocator(gpa);
     sdl3.log.setAllPriorities(.info);
     sdl3.log.setLogOutputFunction(void, &sdl3.extras.loggers.zigLog, null);
-
-    try sdl3.init(init_flags);
-    try logger.logInfo("Starting application...", .{});
 
     const display = try Display.getPrimaryDisplay();
     const mode = try display.getDesktopMode();
     const window, const renderer = try Renderer.initWithWindow("zview", mode.width, mode.height, .{ .fullscreen = true });
-    errdefer renderer.deinit();
-    errdefer window.deinit();
+    defer renderer.deinit();
+    defer window.deinit();
 
     try renderer.setLogicalPresentation(mode.width, mode.height, .letter_box);
     var fps_limiter = FpsLimiter{ .mode = .unlimited };
@@ -65,91 +39,78 @@ pub fn init(init_data: sdl3.Init) !struct { AppState, sdl3.AppResult } {
         fps_limiter.mode = .{ .limited = fps };
     };
 
-    var images = try Images.init(io, gpa, path);
+    var arg_iterator = try init.minimal.args.iterateAllocator(allocator);
+    defer arg_iterator.deinit();
+
+    _ = arg_iterator.next();
+    const path = arg_iterator.next() orelse return error.PathRequied;
+
+    var images = try Images.init(io, allocator, path);
+    defer images.deinit(allocator);
+
     switch (images.source) {
         .image => |img_src| {
             images.items.current = .{ .texture = try sdl3.image.loadTexture(renderer, img_src) };
         },
         .directory => |dir_src| {
-            const img_path = try std.fs.path.joinZ(gpa, &.{ dir_src.dir_path, dir_src.sub_paths[0] });
-            defer gpa.free(img_path);
+            const img_path = try std.fs.path.joinZ(allocator, &.{ dir_src.dir_path, dir_src.sub_paths[0] });
+            defer allocator.free(img_path);
             images.items.current = .{ .texture = try sdl3.image.loadTexture(renderer, img_path) };
         },
         .zip => |zip_src| {
             _ = zip_src;
+            // TODO:
         },
     }
 
-    const thread = if (images.source != .image) try std.Thread.spawn(.{}, Images.loadAdjacentImages, .{ &io, &gpa, &images }) else null;
-    try logger.logInfo("Finished initializing", .{});
-    return .{
-        .{
-            .io = io,
-            .fps_limiter = fps_limiter,
-            .window = window,
-            .renderer = renderer,
-            .allocator = gpa,
-            .images = images,
-            .thread = thread,
-        },
-        .run,
-    };
-}
+    const thread = if (images.source != .image) try std.Thread.spawn(.{}, Images.loadAdjacentImages, .{ io, allocator, &images }) else null;
+    if (thread) |t| t.detach();
+    var transform: Transform = .{};
 
-pub fn iterate(state: *AppState) !sdl3.AppResult {
-    _ = state.fps_limiter.delay();
-    try state.renderer.setDrawColor(.{ .r = 0, .g = 0, .b = 0, .a = 255 });
-    try state.renderer.clear();
+    var quit = false;
+    while (!quit) {
+        _ = fps_limiter.delay();
+        try renderer.setDrawColor(.{ .r = 0, .g = 0, .b = 0, .a = 255 });
+        try renderer.clear();
 
-    const texture = try state.images.getCurrentTexture(state.io, state.renderer);
-    const texture_width, const texture_height = try texture.getSize();
-    const window_size = try state.window.getSize();
-    const window_width: f32 = @floatFromInt(window_size.@"0");
-    const window_height: f32 = @floatFromInt(window_size.@"1");
+        const window_size = try window.getSize();
+        const texture = blk: {
+            if (try images.getCurrentTexture(io, renderer)) |tex| break :blk tex;
+            const fallback = try renderer.createTexture(.packed_rgba_8_8_8_8, .target, window_size.@"0", window_size.@"1");
+            break :blk fallback;
+        };
 
-    const transform = state.transform;
-    const scale = @min(window_width / texture_width, window_height / texture_height) * transform.scale_factor;
-    var dest_rect: sdl3.rect.FRect = undefined;
-    dest_rect.w = texture_width * scale;
-    dest_rect.h = texture_height * scale;
-    dest_rect.x = (window_width - dest_rect.w) / 2;
-    dest_rect.y = (window_height - dest_rect.h) / 2;
+        const texture_width, const texture_height = try texture.getSize();
+        const window_width: f32 = @floatFromInt(window_size.@"0");
+        const window_height: f32 = @floatFromInt(window_size.@"1");
+        const scale = @min(window_width / texture_width, window_height / texture_height) * transform.scale_factor;
+        var dest_rect: sdl3.rect.FRect = undefined;
+        dest_rect.w = texture_width * scale;
+        dest_rect.h = texture_height * scale;
+        dest_rect.x = (window_width - dest_rect.w) / 2;
+        dest_rect.y = (window_height - dest_rect.h) / 2;
 
-    try state.renderer.renderTextureRotated(texture, null, dest_rect, transform.rotate_angle, null, .{});
-    try state.renderer.present();
-    return .run;
-}
+        try renderer.renderTextureRotated(texture, null, dest_rect, transform.rotate_angle, null, .{});
+        try renderer.present();
 
-pub fn event(state: *AppState, current_event: sdl3.events.Event) !sdl3.AppResult {
-    switch (current_event) {
-        .terminating, .quit => return .success,
-        .key_down => |keyboard| {
-            if (keyboard.key == null) return .run;
-            switch (keyboard.key.?) {
-                .q => return .success,
-                .l => state.transform.rotate(.clockwise),
-                .h => state.transform.rotate(.counter_clockwise),
-                .z => state.transform.scaleUp(),
-                .x => state.transform.scaleDown(),
-                .right => try state.images.next(state.io),
-                .left => try state.images.previous(state.io),
+        while (sdl3.events.poll()) |event| {
+            sw: switch (event) {
+                .quit, .terminating => quit = true,
+                .key_down => |keyboard| {
+                    if (keyboard.key == null) break :sw;
+                    switch (keyboard.key.?) {
+                        .q => quit = true,
+                        .l => transform.rotate(.clockwise),
+                        .h => transform.rotate(.counter_clockwise),
+                        .z => transform.scaleUp(),
+                        .x => transform.scaleDown(),
+                        .right => try images.next(io),
+                        .left => try images.previous(io),
+                        else => {},
+                    }
+                },
                 else => {},
             }
-        },
-        else => {},
+        }
     }
-    return .run;
-}
-
-pub fn quit(app_state: ?*AppState, result: sdl3.AppResult) void {
-    _ = result;
-    if (app_state) |state| {
-        state.images.deinit(state.allocator);
-        state.renderer.deinit();
-        state.window.deinit();
-        if (state.thread) |thread| thread.join();
-    }
-
-    sdl3.quit(init_flags);
-    sdl3.shutdown();
 }

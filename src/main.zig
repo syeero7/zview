@@ -2,21 +2,25 @@ const std = @import("std");
 const sdl3 = @import("sdl3");
 const Transform = @import("Transform.zig");
 const Images = @import("Images.zig");
+const image_loader = @import("image_loader.zig");
 
 const Io = std.Io;
 
 const Display = sdl3.video.Display;
 const Renderer = sdl3.render.Renderer;
 const Texture = sdl3.render.Texture;
+const Sdl3Thread = sdl3.thread.Thread;
 const FpsLimiter = sdl3.extras.FramerateCapper(f32);
 
 const AppState = struct {
+    io: Io,
     allocator: std.mem.Allocator,
     fps_limiter: FpsLimiter,
     window: sdl3.video.Window,
     renderer: Renderer,
     transform: Transform = .{},
     images: Images,
+    thread: ?std.Thread = null,
 };
 
 // Use main callbacks.
@@ -61,18 +65,32 @@ pub fn init(init_data: sdl3.Init) !struct { AppState, sdl3.AppResult } {
         fps_limiter.mode = .{ .limited = fps };
     };
 
-    var texture_list = std.ArrayList(Texture).empty;
-    errdefer texture_list.deinit(gpa);
+    var images = try Images.init(io, gpa, path);
+    switch (images.source) {
+        .image => |img_src| {
+            images.items.current = .{ .texture = try sdl3.image.loadTexture(renderer, img_src) };
+        },
+        .directory => |dir_src| {
+            const img_path = try std.fs.path.joinZ(gpa, &.{ dir_src.dir_path, dir_src.sub_paths[0] });
+            defer gpa.free(img_path);
+            images.items.current = .{ .texture = try sdl3.image.loadTexture(renderer, img_path) };
+        },
+        .zip => |zip_src| {
+            _ = zip_src;
+        },
+    }
 
-    const images = try Images.init(io, gpa, renderer, path);
+    const thread = if (images.source != .image) try std.Thread.spawn(.{}, Images.loadAdjacentImages, .{ &io, &gpa, &images }) else null;
     try logger.logInfo("Finished initializing", .{});
     return .{
         .{
+            .io = io,
             .fps_limiter = fps_limiter,
             .window = window,
             .renderer = renderer,
             .allocator = gpa,
             .images = images,
+            .thread = thread,
         },
         .run,
     };
@@ -83,7 +101,7 @@ pub fn iterate(state: *AppState) !sdl3.AppResult {
     try state.renderer.setDrawColor(.{ .r = 0, .g = 0, .b = 0, .a = 255 });
     try state.renderer.clear();
 
-    const texture = state.images.getCurrentTexture();
+    const texture = try state.images.getCurrentTexture(state.io, state.renderer);
     const texture_width, const texture_height = try texture.getSize();
     const window_size = try state.window.getSize();
     const window_width: f32 = @floatFromInt(window_size.@"0");
@@ -113,8 +131,8 @@ pub fn event(state: *AppState, current_event: sdl3.events.Event) !sdl3.AppResult
                 .h => state.transform.rotate(.counter_clockwise),
                 .z => state.transform.scaleUp(),
                 .x => state.transform.scaleDown(),
-                .right => state.images.next(),
-                .left => state.images.previous(),
+                .right => try state.images.next(state.io),
+                .left => try state.images.previous(state.io),
                 else => {},
             }
         },
@@ -129,6 +147,7 @@ pub fn quit(app_state: ?*AppState, result: sdl3.AppResult) void {
         state.images.deinit(state.allocator);
         state.renderer.deinit();
         state.window.deinit();
+        if (state.thread) |thread| thread.join();
     }
 
     sdl3.quit(init_flags);

@@ -232,8 +232,7 @@ pub fn loadAdjacentImages(io: Io, allocator: Allocator, images: *Images) !void {
         const should_load_next = next_index < src_length and (images.items.next == null or
             (images.items.next.?.texture == null and images.items.next.?.surface == null));
 
-        // FIXME: cannot navigate to index 0 if its not cached
-        const should_load_prev = prev_index > 0 and (images.items.previous == null or
+        const should_load_prev = images.cursor > 0 and prev_index >= 0 and (images.items.previous == null or
             (images.items.previous.?.texture == null and images.items.previous.?.surface == null));
 
         switch (images.source) {

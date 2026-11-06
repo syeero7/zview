@@ -46,7 +46,7 @@ pub fn main(init: std.process.Init) !void {
     const path = arg_iterator.next() orelse return error.PathRequied;
 
     var images = try Images.init(io, allocator, path);
-    defer images.deinit(allocator);
+    defer images.deinit(io, allocator);
 
     switch (images.source) {
         .image => |img_src| {
@@ -58,8 +58,10 @@ pub fn main(init: std.process.Init) !void {
             images.items.current = .{ .texture = try sdl3.image.loadTexture(renderer, img_path) };
         },
         .zip => |zip_src| {
-            _ = zip_src;
-            // TODO:
+            const data = try zip_src.getDataByIndex(allocator, 0);
+            defer allocator.free(data);
+            const stream = try sdl3.io_stream.Stream.initFromConstMem(data);
+            images.items.current = .{ .texture = try sdl3.image.loadTextureIo(renderer, stream, true) };
         },
     }
 

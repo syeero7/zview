@@ -1,5 +1,6 @@
 const std = @import("std");
 const sdl3 = @import("sdl3");
+const zip_lib = @import("zip.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -23,7 +24,7 @@ const ImageItems = struct {
 
 const Source = union(enum) {
     directory: SourceDir,
-    zip: SourceZip,
+    zip: *SourceZip,
     image: [:0]const u8,
 };
 
@@ -33,7 +34,33 @@ const SourceDir = struct {
 };
 
 const SourceZip = struct {
-    filenames: [][]const u8,
+    file: Io.File,
+    buffer: [1024 * 4]u8 = undefined,
+    reader: Io.File.Reader,
+    entries: []const ZipEntryInfo,
+
+    pub fn getDataByIndex(self: *SourceZip, allocator: Allocator, index: usize) ![]u8 {
+        const entry = self.entries[index];
+        try self.reader.seekTo(entry.file_offset);
+
+        const reader = &self.reader.interface;
+        switch (entry.compression_method) {
+            .store => return try reader.readAllocAll(allocator, entry.uncompressed_size),
+            .deflate => {
+                var buffer: [std.compress.flate.max_window_len]u8 = undefined;
+                var decompress: std.compress.flate.Decompress = .init(reader, .raw, &buffer);
+                return try decompress.reader.readAllocAll(allocator, entry.uncompressed_size);
+            },
+            else => return error.Unsupported,
+        }
+    }
+};
+
+const ZipEntryInfo = struct {
+    file_offset: u64,
+    uncompressed_size: u64,
+    filename: []const u8,
+    compression_method: std.zip.CompressionMethod,
 };
 
 source: Source,
@@ -50,34 +77,37 @@ pub fn init(io: Io, allocator: Allocator, path: [:0]const u8) !@This() {
     const source: Source = sw: switch (stat.kind) {
         .file => {
             if (isImage(path)) break :sw .{ .image = path };
-            return error.UnkownFileType;
-            // if (!isZip(file_ext)) return error.UnkownFileType;
-            //
-            // // TODO: lazy load images
-            // // TODO: sort by filename
-            // const file = try Io.Dir.cwd().openFile(io, path, .{});
-            // defer file.close(io);
-            // var buffer: [1024 * 4]u8 = undefined;
-            // var file_reader = file.reader(io, &buffer);
-            //
-            // var alloc_writer = Io.Writer.Allocating.init(allocator);
-            // defer alloc_writer.deinit();
-            // var iterator = try std.zip.Iterator.init(&file_reader);
-            // while (try iterator.next()) |entry| {
-            //     if (entry.uncompressed_size == 0) continue;
-            //     const name_buf = try allocator.alloc(u8, entry.filename_len);
-            //     defer allocator.free(name_buf);
-            //
-            //     const file_name = try entry.getFilename(&file_reader, name_buf, .{});
-            //     if (!isImage(std.fs.path.extension(file_name))) continue;
-            //
-            //     defer alloc_writer.clearRetainingCapacity();
-            //     try alloc_writer.ensureTotalCapacity(entry.uncompressed_size);
-            //     try entry.extractTo(&file_reader, &alloc_writer.writer);
-            //
-            //     const stream = try sdl3.io_stream.Stream.initFromConstMem(alloc_writer.written());
-            //     try texture_list.append(allocator, try sdl3.image.loadTextureIo(renderer, stream, true));
-            // }
+            if (!isZip(path)) return error.UnkownFileType;
+            // TODO: sort by filename
+            var zip_src = try allocator.create(SourceZip);
+            errdefer allocator.destroy(zip_src);
+
+            zip_src.file = try Io.Dir.cwd().openFile(io, path, .{});
+            zip_src.reader = zip_src.file.reader(io, &zip_src.buffer);
+            var entry_list = std.ArrayList(ZipEntryInfo).empty;
+            errdefer entry_list.deinit(allocator);
+
+            const stream = &zip_src.reader;
+            var iterator = try std.zip.Iterator.init(stream);
+            while (try iterator.next()) |entry| {
+                if (entry.uncompressed_size == 0) continue;
+                const name_buffer = try allocator.alloc(u8, entry.filename_len);
+                const filename = try entry.getFilename(stream, name_buffer, .{});
+                if (!isImage(filename)) {
+                    allocator.free(name_buffer);
+                    continue;
+                }
+
+                try entry_list.append(allocator, .{
+                    .file_offset = try zip_lib.getFileOffset(entry, stream),
+                    .uncompressed_size = entry.uncompressed_size,
+                    .compression_method = entry.compression_method,
+                    .filename = filename,
+                });
+            }
+
+            zip_src.entries = try entry_list.toOwnedSlice(allocator);
+            break :sw .{ .zip = zip_src };
         },
         .directory => {
             const dir = try cwd.openDir(io, path, .{ .iterate = true });
@@ -113,13 +143,18 @@ pub fn init(io: Io, allocator: Allocator, path: [:0]const u8) !@This() {
     };
 }
 
-pub fn deinit(self: *@This(), allocator: Allocator) void {
+pub fn deinit(self: *@This(), io: Io, allocator: Allocator) void {
     switch (self.source) {
         .directory => |dir_src| {
             for (dir_src.sub_paths) |sub_path| allocator.free(sub_path);
             allocator.free(dir_src.sub_paths);
         },
-        .zip => |zip_src| allocator.free(zip_src.filenames),
+        .zip => |zip_src| {
+            zip_src.file.close(io);
+            for (zip_src.entries) |entry| allocator.free(entry.filename);
+            allocator.free(zip_src.entries);
+            allocator.destroy(zip_src);
+        },
         else => {},
     }
 
@@ -135,7 +170,7 @@ pub fn deinit(self: *@This(), allocator: Allocator) void {
 pub fn next(self: *@This(), io: Io) !void {
     const items_length = switch (self.source) {
         .directory => |dir_src| dir_src.sub_paths.len,
-        .zip => |zip_src| zip_src.filenames.len,
+        .zip => |zip_src| zip_src.entries.len,
         .image => return,
     };
     try self.mutex.lock(io);
@@ -213,8 +248,8 @@ fn isZip(filename: []const u8) bool {
 pub fn loadAdjacentImages(io: Io, allocator: Allocator, images: *Images) !void {
     const src_length = switch (images.source) {
         .directory => |dir| dir.sub_paths.len,
-        .zip => |zip| zip.filenames.len,
-        else => 1,
+        .zip => |zip| zip.entries.len,
+        else => unreachable,
     };
 
     while (true) {
@@ -251,8 +286,19 @@ pub fn loadAdjacentImages(io: Io, allocator: Allocator, images: *Images) !void {
                 std.log.debug("next: {any} prev: {any}", .{ should_load_next, should_load_prev });
             },
             .zip => |zip_src| {
-                _ = zip_src;
-                // TODO:
+                if (should_load_next) {
+                    const data = try zip_src.getDataByIndex(allocator, next_index);
+                    defer allocator.free(data);
+                    const stream = try sdl3.io_stream.Stream.initFromConstMem(data);
+                    images.items.next = .{ .surface = try sdl3.image.loadIo(stream, true) };
+                }
+
+                if (should_load_prev) {
+                    const data = try zip_src.getDataByIndex(allocator, prev_index);
+                    defer allocator.free(data);
+                    const stream = try sdl3.io_stream.Stream.initFromConstMem(data);
+                    images.items.previous = .{ .surface = try sdl3.image.loadIo(stream, true) };
+                }
             },
             else => {},
         }

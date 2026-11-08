@@ -16,6 +16,7 @@ const ImageItem = struct {
     texture: ?Texture = null,
 };
 
+// TODO: rename to cache
 const ImageItems = struct {
     previous: ?ImageItem = null,
     current: ?ImageItem = null,
@@ -78,7 +79,6 @@ pub fn init(io: Io, allocator: Allocator, path: [:0]const u8) !@This() {
         .file => {
             if (isImage(path)) break :sw .{ .image = path };
             if (!isZip(path)) return error.UnkownFileType;
-            // TODO: sort by filename
             var zip_src = try allocator.create(SourceZip);
             errdefer allocator.destroy(zip_src);
 
@@ -106,6 +106,7 @@ pub fn init(io: Io, allocator: Allocator, path: [:0]const u8) !@This() {
                 });
             }
 
+            std.mem.sort(ZipEntryInfo, entry_list.items, {}, sortZipEntryLt);
             zip_src.entries = try entry_list.toOwnedSlice(allocator);
             break :sw .{ .zip = zip_src };
         },
@@ -125,7 +126,7 @@ pub fn init(io: Io, allocator: Allocator, path: [:0]const u8) !@This() {
                 try paths.append(allocator, try allocator.dupeSentinel(u8, entry.path, 0));
             }
 
-            // std.mem.sort([]const u8,paths.items,{},);
+            std.mem.sort([:0]const u8, paths.items, {}, sortDirEntryLt);
             break :sw .{
                 .directory = .{
                     .dir_path = path,
@@ -303,4 +304,12 @@ pub fn loadAdjacentImages(io: Io, allocator: Allocator, images: *Images) !void {
             else => {},
         }
     }
+}
+
+fn sortZipEntryLt(_: void, lhs: ZipEntryInfo, rhs: ZipEntryInfo) bool {
+    return std.mem.order(u8, lhs.filename, rhs.filename) == .lt;
+}
+
+fn sortDirEntryLt(_: void, lhs: [:0]const u8, rhs: [:0]const u8) bool {
+    return std.mem.orderZ(u8, lhs, rhs) == .lt;
 }

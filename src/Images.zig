@@ -260,7 +260,6 @@ pub fn loadAdjacentImages(io: Io, allocator: Allocator, images: *Images) !void {
 
         while (!images.ready) try images.condition.wait(io, &images.mutex);
         defer images.ready = false;
-        std.debug.print("current: {d}\n", .{images.cursor});
 
         const prev_index = if (images.cursor > 0) images.cursor - 1 else 0;
         const next_index = images.cursor + 1;
@@ -284,7 +283,6 @@ pub fn loadAdjacentImages(io: Io, allocator: Allocator, images: *Images) !void {
                     defer allocator.free(path);
                     images.items.previous = .{ .surface = try sdl3.image.loadFile(path) };
                 }
-                std.log.debug("next: {any} prev: {any}", .{ should_load_next, should_load_prev });
             },
             .zip => |zip_src| {
                 if (should_load_next) {

@@ -31,9 +31,9 @@ pub fn build(b: *std.Build) !void {
         return;
     }
 
+    _ = b.systemIntegrationOption("sdl", .{ .default = true });
     const target = b.standardTargetOptions(.{});
     const main_module = getModule(b, target, optimize);
-    _ = b.systemIntegrationOption("sdl", .{ .default = true });
     main_module.linkSystemLibrary("SDL3_image", .{});
 
     const exe = b.addExecutable(.{

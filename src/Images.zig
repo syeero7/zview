@@ -1,6 +1,7 @@
 const std = @import("std");
 const sdl3 = @import("sdl3");
 const zip_lib = @import("zip.zig");
+const Cache = @import("Cache.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -10,18 +11,6 @@ const Renderer = sdl3.render.Renderer;
 const Sdl3Thread = sdl3.thread.Thread;
 
 const Images = @This();
-
-const ImageItem = struct {
-    surface: ?Surface = null,
-    texture: ?Texture = null,
-};
-
-// TODO: rename to cache
-const ImageItems = struct {
-    previous: ?ImageItem = null,
-    current: ?ImageItem = null,
-    next: ?ImageItem = null,
-};
 
 const Source = union(enum) {
     directory: SourceDir,
@@ -66,7 +55,7 @@ const ZipEntryInfo = struct {
 
 source: Source,
 cursor: usize = 0,
-items: ImageItems = .{},
+cache: Cache = .{},
 mutex: Io.Mutex,
 condition: Io.Condition,
 active: bool = true,
@@ -160,12 +149,7 @@ pub fn deinit(self: *@This(), io: Io, allocator: Allocator) void {
     }
 
     self.active = false;
-    inline for (@typeInfo(ImageItems).@"struct".field_names) |field| {
-        if (@field(self.items, field)) |item| {
-            if (item.surface) |surface| surface.deinit();
-            if (item.texture) |texture| texture.deinit();
-        }
-    }
+    self.cache.deinit();
 }
 
 pub fn next(self: *@This(), io: Io) !void {
@@ -180,13 +164,7 @@ pub fn next(self: *@This(), io: Io) !void {
     if (self.cursor == items_length - 1) return;
     self.cursor += 1;
 
-    if (self.items.previous) |prev_item| {
-        if (prev_item.surface) |surface| surface.deinit();
-        if (prev_item.texture) |texture| texture.deinit();
-    }
-    self.items.previous = self.items.current;
-    self.items.current = self.items.next;
-    self.items.next = null;
+    self.cache.loadNext();
     self.ready = true;
     self.condition.signal(io);
 }
@@ -199,13 +177,7 @@ pub fn previous(self: *@This(), io: Io) !void {
     if (self.cursor == 0) return;
     self.cursor -= 1;
 
-    if (self.items.next) |next_item| {
-        if (next_item.surface) |surface| surface.deinit();
-        if (next_item.texture) |texture| texture.deinit();
-    }
-    self.items.next = self.items.current;
-    self.items.current = self.items.previous;
-    self.items.previous = null;
+    self.cache.loadPrevious();
     self.ready = true;
     self.condition.signal(io);
 }
@@ -214,12 +186,12 @@ pub fn getCurrentTexture(self: *@This(), io: Io, renderer: Renderer) !?Texture {
     try self.mutex.lock(io);
     defer self.mutex.unlock(io);
 
-    const current = self.items.current orelse return null;
+    const current = self.cache.current orelse return null;
     if (current.texture) |texture| return texture;
     if (current.surface) |surface| {
         const texture = try renderer.createTextureFromSurface(surface);
         surface.deinit();
-        self.items.current = .{ .texture = texture, .surface = null };
+        self.cache.current = .{ .texture = texture, .surface = null };
         return texture;
     }
 
@@ -263,25 +235,21 @@ pub fn loadAdjacentImages(io: Io, allocator: Allocator, images: *Images) !void {
 
         const prev_index = if (images.cursor > 0) images.cursor - 1 else 0;
         const next_index = images.cursor + 1;
-
-        const should_load_next = next_index < src_length and (images.items.next == null or
-            (images.items.next.?.texture == null and images.items.next.?.surface == null));
-
-        const should_load_prev = images.cursor > 0 and prev_index >= 0 and (images.items.previous == null or
-            (images.items.previous.?.texture == null and images.items.previous.?.surface == null));
+        const should_load_next = next_index < src_length and !images.cache.hasNext();
+        const should_load_prev = images.cursor > 0 and prev_index >= 0 and !images.cache.hasPrevious();
 
         switch (images.source) {
             .directory => |dir_src| {
                 if (should_load_next) {
                     const path = try std.fs.path.joinZ(allocator, &.{ dir_src.dir_path, dir_src.sub_paths[next_index] });
                     defer allocator.free(path);
-                    images.items.next = .{ .surface = try sdl3.image.loadFile(path) };
+                    images.cache.next = .{ .surface = try sdl3.image.loadFile(path) };
                 }
 
                 if (should_load_prev) {
                     const path = try std.fs.path.joinZ(allocator, &.{ dir_src.dir_path, dir_src.sub_paths[prev_index] });
                     defer allocator.free(path);
-                    images.items.previous = .{ .surface = try sdl3.image.loadFile(path) };
+                    images.cache.previous = .{ .surface = try sdl3.image.loadFile(path) };
                 }
             },
             .zip => |zip_src| {
@@ -289,14 +257,14 @@ pub fn loadAdjacentImages(io: Io, allocator: Allocator, images: *Images) !void {
                     const data = try zip_src.getDataByIndex(allocator, next_index);
                     defer allocator.free(data);
                     const stream = try sdl3.io_stream.Stream.initFromConstMem(data);
-                    images.items.next = .{ .surface = try sdl3.image.loadIo(stream, true) };
+                    images.cache.next = .{ .surface = try sdl3.image.loadIo(stream, true) };
                 }
 
                 if (should_load_prev) {
                     const data = try zip_src.getDataByIndex(allocator, prev_index);
                     defer allocator.free(data);
                     const stream = try sdl3.io_stream.Stream.initFromConstMem(data);
-                    images.items.previous = .{ .surface = try sdl3.image.loadIo(stream, true) };
+                    images.cache.previous = .{ .surface = try sdl3.image.loadIo(stream, true) };
                 }
             },
             else => {},

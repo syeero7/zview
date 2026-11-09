@@ -50,18 +50,18 @@ pub fn main(init: std.process.Init) !void {
 
     switch (images.source) {
         .image => |img_src| {
-            images.items.current = .{ .texture = try sdl3.image.loadTexture(renderer, img_src) };
+            images.cache.current = .{ .texture = try sdl3.image.loadTexture(renderer, img_src) };
         },
         .directory => |dir_src| {
             const img_path = try std.fs.path.joinZ(allocator, &.{ dir_src.dir_path, dir_src.sub_paths[0] });
             defer allocator.free(img_path);
-            images.items.current = .{ .texture = try sdl3.image.loadTexture(renderer, img_path) };
+            images.cache.current = .{ .texture = try sdl3.image.loadTexture(renderer, img_path) };
         },
         .zip => |zip_src| {
             const data = try zip_src.getDataByIndex(allocator, 0);
             defer allocator.free(data);
             const stream = try sdl3.io_stream.Stream.initFromConstMem(data);
-            images.items.current = .{ .texture = try sdl3.image.loadTextureIo(renderer, stream, true) };
+            images.cache.current = .{ .texture = try sdl3.image.loadTextureIo(renderer, stream, true) };
         },
     }
 
@@ -96,10 +96,10 @@ pub fn main(init: std.process.Init) !void {
         try renderer.present();
 
         while (sdl3.events.poll()) |event| {
-            sw: switch (event) {
+            switch (event) {
                 .quit, .terminating => quit = true,
                 .key_down => |keyboard| {
-                    if (keyboard.key == null) break :sw;
+                    if (keyboard.key == null) continue;
                     switch (keyboard.key.?) {
                         .q => quit = true,
                         .l => transform.rotate(.clockwise),

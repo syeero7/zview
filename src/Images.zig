@@ -17,7 +17,6 @@ current_index: usize = 0,
 cache: Cache = .{},
 mutex: Io.Mutex,
 condition: Io.Condition,
-active: bool = true,
 ready: bool = true,
 
 pub fn init(io: Io, allocator: Allocator, path: [:0]const u8) !@This() {
@@ -30,7 +29,6 @@ pub fn init(io: Io, allocator: Allocator, path: [:0]const u8) !@This() {
 
 pub fn deinit(self: *@This(), io: Io, allocator: Allocator) void {
     self.source.deinit(io, allocator);
-    self.active = false;
     self.cache.deinit();
 }
 
@@ -90,7 +88,6 @@ pub fn loadAdjacentImages(io: Io, allocator: Allocator, images: *Images) !void {
     while (true) {
         try images.mutex.lock(io);
         defer images.mutex.unlock(io);
-        if (!images.active) break;
 
         while (!images.ready) try images.condition.wait(io, &images.mutex);
         defer images.ready = false;

@@ -52,9 +52,11 @@ pub fn main(init: std.process.Init) !void {
         .texture = try images.source.getTexture(allocator, 0, renderer),
     };
 
-    const thread = if (images.source != .image) try std.Thread.spawn(.{}, Images.loadAdjacentImages, .{ io, allocator, &images }) else null;
-    if (thread) |t| t.detach();
     var transform: Transform = .{};
+    if (images.source != .image) {
+        const thread = try std.Thread.spawn(.{}, Images.loadAdjacentImages, .{ io, allocator, &images });
+        thread.detach();
+    }
 
     var quit = false;
     while (!quit) {

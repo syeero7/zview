@@ -88,6 +88,11 @@ pub fn main(init: std.process.Init) !void {
         while (sdl3.events.poll()) |event| {
             switch (event) {
                 .quit, .terminating => quit = true,
+                .mouse_wheel => |mouse| {
+                    if (mouse.scroll_y < 0) try images.next(io);
+                    if (mouse.scroll_y > 0) try images.previous(io);
+                    continue;
+                },
                 .key_down => |keyboard| {
                     if (keyboard.key == null) continue;
                     switch (keyboard.key.?) {

@@ -1,7 +1,7 @@
 const std = @import("std");
 const sdl3 = @import("sdl3");
+const img = @import("images.zig");
 const Transform = @import("Transform.zig");
-const Images = @import("Images.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -45,7 +45,7 @@ pub fn main(init: std.process.Init) !void {
     _ = arg_iterator.next();
     const path = arg_iterator.next() orelse return error.PathRequied;
 
-    var images = try Images.init(io, allocator, path);
+    var images = try img.Images.init(io, allocator, path);
     defer images.deinit(io, allocator);
 
     images.cache.current = .{
@@ -54,7 +54,7 @@ pub fn main(init: std.process.Init) !void {
 
     var transform: Transform = .{};
     if (images.source != .image) {
-        const thread = try std.Thread.spawn(.{}, Images.loadAdjacentImages, .{ io, allocator, &images });
+        const thread = try std.Thread.spawn(.{}, img.loadAdjacentImages, .{ io, allocator, &images });
         thread.detach();
     }
 

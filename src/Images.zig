@@ -13,7 +13,7 @@ const Renderer = sdl3.render.Renderer;
 const Images = @This();
 
 source: img_src.Source,
-cursor: usize = 0,
+current_index: usize = 0,
 cache: Cache = .{},
 mutex: Io.Mutex,
 condition: Io.Condition,
@@ -43,8 +43,8 @@ pub fn next(self: *@This(), io: Io) !void {
     try self.mutex.lock(io);
     defer self.mutex.unlock(io);
 
-    if (self.cursor == src_length - 1) return;
-    self.cursor += 1;
+    if (self.current_index == src_length - 1) return;
+    self.current_index += 1;
 
     self.cache.loadNext();
     self.ready = true;
@@ -56,8 +56,8 @@ pub fn previous(self: *@This(), io: Io) !void {
     try self.mutex.lock(io);
     defer self.mutex.unlock(io);
 
-    if (self.cursor == 0) return;
-    self.cursor -= 1;
+    if (self.current_index == 0) return;
+    self.current_index -= 1;
 
     self.cache.loadPrevious();
     self.ready = true;
@@ -95,8 +95,8 @@ pub fn loadAdjacentImages(io: Io, allocator: Allocator, images: *Images) !void {
         while (!images.ready) try images.condition.wait(io, &images.mutex);
         defer images.ready = false;
 
-        const prev_index = if (images.cursor > 0) images.cursor - 1 else 0;
-        const next_index = images.cursor + 1;
+        const prev_index = if (images.current_index > 0) images.current_index - 1 else 0;
+        const next_index = images.current_index + 1;
 
         if (next_index < src_length and !images.cache.hasNext()) {
             images.cache.next = .{
@@ -104,7 +104,7 @@ pub fn loadAdjacentImages(io: Io, allocator: Allocator, images: *Images) !void {
             };
         }
 
-        if (images.cursor > 0 and prev_index >= 0 and !images.cache.hasPrevious()) {
+        if (images.current_index > 0 and prev_index >= 0 and !images.cache.hasPrevious()) {
             images.cache.previous = .{
                 .surface = try images.source.getSurface(allocator, prev_index),
             };

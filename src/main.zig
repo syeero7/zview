@@ -48,22 +48,9 @@ pub fn main(init: std.process.Init) !void {
     var images = try Images.init(io, allocator, path);
     defer images.deinit(io, allocator);
 
-    switch (images.source) {
-        .image => |img_src| {
-            images.cache.current = .{ .texture = try sdl3.image.loadTexture(renderer, img_src) };
-        },
-        .directory => |dir_src| {
-            const img_path = try std.fs.path.joinZ(allocator, &.{ dir_src.dir_path, dir_src.sub_paths[0] });
-            defer allocator.free(img_path);
-            images.cache.current = .{ .texture = try sdl3.image.loadTexture(renderer, img_path) };
-        },
-        .zip => |zip_src| {
-            const data = try zip_src.getDataByIndex(allocator, 0);
-            defer allocator.free(data);
-            const stream = try sdl3.io_stream.Stream.initFromConstMem(data);
-            images.cache.current = .{ .texture = try sdl3.image.loadTextureIo(renderer, stream, true) };
-        },
-    }
+    images.cache.current = .{
+        .texture = try images.source.getTexture(allocator, 0, renderer),
+    };
 
     const thread = if (images.source != .image) try std.Thread.spawn(.{}, Images.loadAdjacentImages, .{ io, allocator, &images }) else null;
     if (thread) |t| t.detach();

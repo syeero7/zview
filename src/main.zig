@@ -1,7 +1,7 @@
 const std = @import("std");
 const sdl3 = @import("sdl3");
+const img = @import("images.zig");
 const Transform = @import("Transform.zig");
-const Images = @import("Images.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -45,29 +45,18 @@ pub fn main(init: std.process.Init) !void {
     _ = arg_iterator.next();
     const path = arg_iterator.next() orelse return error.PathRequied;
 
-    var images = try Images.init(io, allocator, path);
+    var images = try img.Images.init(io, allocator, path);
     defer images.deinit(io, allocator);
 
-    switch (images.source) {
-        .image => |img_src| {
-            images.items.current = .{ .texture = try sdl3.image.loadTexture(renderer, img_src) };
-        },
-        .directory => |dir_src| {
-            const img_path = try std.fs.path.joinZ(allocator, &.{ dir_src.dir_path, dir_src.sub_paths[0] });
-            defer allocator.free(img_path);
-            images.items.current = .{ .texture = try sdl3.image.loadTexture(renderer, img_path) };
-        },
-        .zip => |zip_src| {
-            const data = try zip_src.getDataByIndex(allocator, 0);
-            defer allocator.free(data);
-            const stream = try sdl3.io_stream.Stream.initFromConstMem(data);
-            images.items.current = .{ .texture = try sdl3.image.loadTextureIo(renderer, stream, true) };
-        },
-    }
+    images.cache.current = .{
+        .texture = try images.source.getTexture(allocator, 0, renderer),
+    };
 
-    const thread = if (images.source != .image) try std.Thread.spawn(.{}, Images.loadAdjacentImages, .{ io, allocator, &images }) else null;
-    if (thread) |t| t.detach();
     var transform: Transform = .{};
+    if (images.source != .image) {
+        const thread = try std.Thread.spawn(.{}, img.loadAdjacentImages, .{ io, allocator, &images });
+        thread.detach();
+    }
 
     var quit = false;
     while (!quit) {
@@ -96,10 +85,10 @@ pub fn main(init: std.process.Init) !void {
         try renderer.present();
 
         while (sdl3.events.poll()) |event| {
-            sw: switch (event) {
+            switch (event) {
                 .quit, .terminating => quit = true,
                 .key_down => |keyboard| {
-                    if (keyboard.key == null) break :sw;
+                    if (keyboard.key == null) continue;
                     switch (keyboard.key.?) {
                         .q => quit = true,
                         .l => transform.rotate(.clockwise),

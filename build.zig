@@ -37,7 +37,7 @@ pub fn build(b: *std.Build) !void {
     const main_module = getModule(b, target, optimize);
     main_module.linkSystemLibrary("SDL3_image", .{});
 
-    const exe = b.addExecutable(.{ .name = "zview", .root_module = main_module, .linkage = .static });
+    const exe = b.addExecutable(.{ .name = "zview", .root_module = main_module });
     b.installArtifact(exe);
 
     const run_step = b.step("run", "Run the app");

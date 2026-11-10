@@ -27,7 +27,9 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v7
         with:
-          path: zig-out/bin/*
+          path: |
+            zig-out/bin/*
+            !zig-out/bin/*.pdb
           if-no-files-found: error
 
   release:

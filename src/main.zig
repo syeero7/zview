@@ -24,6 +24,7 @@ pub fn main(init: std.process.Init) !void {
     try sdl3.init(init_flags);
     defer sdl3.quit(init_flags);
 
+    try sdl3.mouse.hide();
     sdl3.log.setAllPriorities(.info);
     sdl3.log.setLogOutputFunction(void, &sdl3.extras.loggers.zigLog, null);
 

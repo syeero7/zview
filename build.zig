@@ -2,6 +2,7 @@ const std = @import("std");
 const Build = std.Build;
 const ResolvedTarget = Build.ResolvedTarget;
 const OptimizeMode = std.builtin.OptimizeMode;
+const LinkMode = std.builtin.LinkMode;
 
 const targets = [_]std.Target.Query{
     .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu },
@@ -36,10 +37,7 @@ pub fn build(b: *std.Build) !void {
     const main_module = getModule(b, target, optimize);
     main_module.linkSystemLibrary("SDL3_image", .{});
 
-    const exe = b.addExecutable(.{
-        .name = "zview",
-        .root_module = main_module,
-    });
+    const exe = b.addExecutable(.{ .name = "zview", .root_module = main_module, .linkage = .static });
     b.installArtifact(exe);
 
     const run_step = b.step("run", "Run the app");
@@ -54,10 +52,12 @@ pub fn build(b: *std.Build) !void {
 }
 
 fn getModule(b: *Build, target: ResolvedTarget, optimize: OptimizeMode) *Build.Module {
+    const link_mode: LinkMode = if (target.query.os_tag == .windows) .static else .dynamic;
     const sdl3 = b.dependency("sdl3", .{
         .target = target,
         .optimize = optimize,
         .ext_image = true,
+        .c_sdl_preferred_linkage = link_mode,
     });
 
     const main_module = b.createModule(.{

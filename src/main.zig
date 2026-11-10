@@ -95,14 +95,17 @@ pub fn main(init: std.process.Init) !void {
                 },
                 .key_down => |keyboard| {
                     if (keyboard.key == null) continue;
+                    const is_alt_pressed = keyboard.mod.left_alt or keyboard.mod.right_alt;
                     switch (keyboard.key.?) {
                         .q => quit = true,
-                        .l => transform.rotate(.clockwise),
-                        .h => transform.rotate(.counter_clockwise),
+                        .l, .j, .right, .down => {
+                            if (is_alt_pressed) transform.rotate(.clockwise) else try images.next(io);
+                        },
+                        .h, .k, .left, .up => {
+                            if (is_alt_pressed) transform.rotate(.counter_clockwise) else try images.previous(io);
+                        },
                         .z => transform.scaleUp(),
                         .x => transform.scaleDown(),
-                        .right => try images.next(io),
-                        .left => try images.previous(io),
                         else => {},
                     }
                 },

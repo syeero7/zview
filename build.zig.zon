@@ -1,6 +1,6 @@
 .{
     .name = .zview,
-    .version = "0.1.0",
+    .version = "0.2.0",
     .dependencies = .{
         .sdl3 = .{
             .url = "git+https://codeberg.org/7Games/zig-sdl3?ref=v0.2.3#666331118c8f7d8a03ea633d79a343c34dc32b84",

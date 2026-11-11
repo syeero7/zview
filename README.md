@@ -8,6 +8,19 @@ Download [latest release](https://github.com/syeero7/zview/releases/latest)
 
 ### Linux
 
+Install dependencies
+
+```bash
+# fedora
+sudo dnf install SDL3 SDL3_image
+
+# arch
+sudo pacman -S sdl3 sdl3_image
+
+# debian/ubuntu
+sudo apt install libsdl3 libsdl3-image
+```
+
 ```bash
 # make it executable
 chmod +x ./zview
@@ -28,6 +41,19 @@ zview <path>
 | `X`                        | zoom out                       |
 
 ## Build from Source
+
+Install dependencies
+
+```bash
+# fedora
+sudo dnf install SDL3-devel SDL3_image-devel
+
+# arch
+sudo pacman -S sdl3 sdl3_image
+
+# debian/ubuntu
+sudo apt install libsdl3-dev libsdl3-image-dev
+```
 
 Install [Zig](https://ziglang.org/intro/getting-started/) v0.17
 

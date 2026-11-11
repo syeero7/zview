@@ -17,15 +17,15 @@ zview <path>
 
 ## Keybindings
 
-```text
-q      -  quit application
-right  -  go to next image
-left   -  go to previous image
-l      -  rotate image clockwise
-h      -  rotate image counter clockwise
-z      -  zoom in
-x      -  zoom out
-```
+| Keybind                    | Description                    |
+| -------------------------- | ------------------------------ |
+| `Q`                        | quit application               |
+| `L`, `J`, `→`, `↓`         | view next image                |
+| `H`, `K`, `←`, `↑`         | view previous image            |
+| `Alt` + `L`, `J`, `→`, `↓` | rotate image clockwise         |
+| `Alt` + `H`, `K`, `←`, `↑` | rotate image counter clockwise |
+| `Z`                        | zoom in                        |
+| `X`                        | zoom out                       |
 
 ## Build from Source
 

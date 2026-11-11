@@ -9,7 +9,7 @@ pub fn rotate(self: *@This(), direction: enum { clockwise, counter_clockwise }) 
     const angle = self.rotate_angle;
     self.rotate_angle = switch (direction) {
         .clockwise => if (angle == 270) 0 else @min(270, angle + 90),
-        .counter_clockwise => if (angle == 0) 90 else @max(0, angle - 90),
+        .counter_clockwise => if (angle == 0) 270 else @max(0, angle - 90),
     };
 }
 
